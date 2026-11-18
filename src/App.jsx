@@ -249,15 +249,7 @@ export default function App() {
             <div className="w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center shadow-md shadow-indigo-200">
               <Wallet className="w-5 h-5" />
             </div>
-            <div>
-              <div className="flex items-center space-x-2">
-                <h1 className="text-xl font-bold tracking-tight text-slate-900">SplitEasy</h1>
-                <span className="text-xs px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 font-medium border border-indigo-100">
-                  Week 1
-                </span>
-              </div>
-              <p className="text-xs text-slate-500">The Expense Page • Frontend</p>
-            </div>
+            <h1 className="text-xl font-bold tracking-tight text-slate-900">SplitEasy</h1>
           </div>
 
           <button
