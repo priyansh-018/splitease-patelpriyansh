@@ -1,16 +1,74 @@
-# React + Vite
+# SplitEasy - Shared Expense Tracker
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+SplitEasy is a clean, responsive shared expense tracking web application built for **Week 1** of the **CodGen Full Stack Track (MERN)**.
 
-Currently, two official plugins are available:
+The app allows friends, flatmates, or travel groups to record shared expenses and instantly see who paid what, the equal share per person, individual balances, and an exact settlement plan of who needs to pay whom.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+---
 
-## React Compiler
+## 🚀 Features
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+- **Group Setup:** Add 2 to 6 members with custom group themes (*Trip*, *Hostel*, *Flat Rent*, *Party*).
+- **Add Expenses:** Enter description, amount, and choose who paid from the group members.
+- **Totals & Equal Share:** Instant calculation of total group spend and per-person equal share.
+- **Balance Breakdown:** Live balance for each person showing how much they paid and whether they owe or are owed money (`paid - equal share`).
+- **Settlement Plan ("Who Pays Whom"):** Clear breakdown showing direct transfers to settle all group debts with minimum transactions.
+- **Expense History:** List of all recorded expenses with timestamps and 1-click delete.
+- **Data Persistence:** Automatically saves all members and expenses to the browser's `localStorage`.
 
-## Expanding the Oxlint configuration
+---
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and Oxlint's TypeScript related rules in your project.
+## 🧮 Calculation Logic
+
+1. **Total Spent:**
+   $$\text{Total} = \sum \text{expenses}$$
+
+2. **Equal Share:**
+   $$\text{Equal Share} = \frac{\text{Total Spent}}{\text{Number of Members}}$$
+
+3. **Individual Balance:**
+   $$\text{Net Balance} = \text{Amount Paid} - \text{Equal Share}$$
+   - If $\text{Net} > 0$: Member **is owed** money.
+   - If $\text{Net} < 0$: Member **owes** money.
+   - If $\text{Net} = 0$: Member is **settled up**.
+
+4. **Test Case Verification:**
+   - Members: **Aman**, **Riya**, **Karan**
+   - Expenses: Aman paid ₹900 (dinner), Riya paid ₹300 (snacks), Karan paid ₹0
+   - Total = **₹1,200** | Equal Share = **₹400**
+   - Result:
+     - **Aman:** is owed ₹500
+     - **Riya:** owes ₹100
+     - **Karan:** owes ₹400
+     - **Settlement:** Riya pays Aman ₹100, Karan pays Aman ₹400.
+
+---
+
+## 🛠️ Tech Stack
+
+- **Framework:** React 19 + Vite
+- **Styling:** Tailwind CSS v4
+- **Icons:** Lucide React
+- **Storage:** Browser LocalStorage
+
+---
+
+## 💻 Getting Started Locally
+
+1. Clone the repository:
+   ```bash
+   git clone <your-repo-link>
+   cd SplitEasy
+   ```
+
+2. Install dependencies:
+   ```bash
+   npm install
+   ```
+
+3. Run the development server:
+   ```bash
+   npm run dev
+   ```
+
+4. Open [http://localhost:5173](http://localhost:5173) in your browser.
