@@ -57,7 +57,7 @@ The app allows friends, flatmates, or travel groups to record shared expenses an
 
 1. Clone the repository:
    ```bash
-   git clone <your-repo-link>
+   git clone https://github.com/priyansh-018/SplitEasy
    cd SplitEasy
    ```
 
