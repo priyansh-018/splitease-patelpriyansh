@@ -10,38 +10,11 @@ import {
   ArrowRight,
   CheckCircle2,
   RotateCcw,
-  Sparkles,
   DollarSign,
   Tag,
-  Check,
-  Split,
-  Layers,
-  SlidersHorizontal,
-  HandCoins
+  HandCoins,
+  AlertCircle
 } from 'lucide-react'
-
-// Default sample matching Week 1 problem statement
-const SAMPLE_MEMBERS = ['Aman', 'Riya', 'Karan']
-const SAMPLE_EXPENSES = [
-  {
-    id: '1',
-    description: 'Dinner',
-    amount: 900,
-    paidBy: 'Aman',
-    splitType: 'equal',
-    selectedMembers: ['Aman', 'Riya', 'Karan'],
-    createdAt: 'Today, 8:30 PM',
-  },
-  {
-    id: '2',
-    description: 'Snacks',
-    amount: 300,
-    paidBy: 'Riya',
-    splitType: 'equal',
-    selectedMembers: ['Aman', 'Riya', 'Karan'],
-    createdAt: 'Today, 9:15 PM',
-  },
-]
 
 const THEMES = [
   { id: 'trip', label: '🏖️ Trip' },
@@ -51,15 +24,26 @@ const THEMES = [
 ]
 
 export default function App() {
+  // Clear any old fake demo data from previous sessions
+  useEffect(() => {
+    if (!localStorage.getItem('spliteasy_cleaned_v1')) {
+      localStorage.removeItem('spliteasy_members')
+      localStorage.removeItem('spliteasy_expenses')
+      localStorage.setItem('spliteasy_cleaned_v1', 'true')
+      setMembers([])
+      setExpenses([])
+    }
+  }, [])
+
   // --- Persistent State ---
   const [members, setMembers] = useState(() => {
     const saved = localStorage.getItem('spliteasy_members')
-    return saved ? JSON.parse(saved) : SAMPLE_MEMBERS
+    return saved ? JSON.parse(saved) : []
   })
 
   const [expenses, setExpenses] = useState(() => {
     const saved = localStorage.getItem('spliteasy_expenses')
-    return saved ? JSON.parse(saved) : SAMPLE_EXPENSES
+    return saved ? JSON.parse(saved) : []
   })
 
   const [theme, setTheme] = useState(() => {
@@ -71,12 +55,6 @@ export default function App() {
   const [description, setDescription] = useState('')
   const [amount, setAmount] = useState('')
   const [paidBy, setPaidBy] = useState(members[0] || '')
-  
-  // Split Strategy: 'equal' (all), 'selected' (subset of friends), 'custom' (exact amounts per person)
-  const [splitType, setSplitType] = useState('equal')
-  const [selectedMembers, setSelectedMembers] = useState(members)
-  const [customAmounts, setCustomAmounts] = useState({})
-  
   const [errorMsg, setErrorMsg] = useState('')
 
   // Sync with LocalStorage
@@ -92,87 +70,43 @@ export default function App() {
     localStorage.setItem('spliteasy_theme', theme)
   }, [theme])
 
-  // Keep paidBy and selectedMembers in sync if members list changes
+  // Keep paidBy in sync with active members list
   useEffect(() => {
     if (members.length > 0 && !members.includes(paidBy)) {
       setPaidBy(members[0])
     }
-    // Remove any selected member that was removed from group
-    setSelectedMembers((prev) => prev.filter((m) => members.includes(m)))
   }, [members, paidBy])
 
-  // Reset custom amounts and selections when members change
-  useEffect(() => {
-    if (splitType === 'selected' && selectedMembers.length === 0) {
-      setSelectedMembers(members)
-    }
-  }, [splitType, members, selectedMembers.length])
-
-  // --- Calculations ---
+  // --- Calculations (All pure Week 1: Equal Split) ---
   const totalSpent = useMemo(() => {
     return expenses.reduce((sum, item) => sum + Number(item.amount || 0), 0)
   }, [expenses])
 
-  // Calculate detailed balances per member (paid vs owed share)
+  const memberCount = members.length
+  const equalShare = memberCount > 0 ? totalSpent / memberCount : 0
+
+  // Per-person balances: paid minus equal share
   const memberBalances = useMemo(() => {
-    const paidMap = {}
-    const shareMap = {}
-
-    members.forEach((m) => {
-      paidMap[m] = 0
-      shareMap[m] = 0
-    })
-
-    expenses.forEach((exp) => {
-      const expAmount = Number(exp.amount || 0)
-      if (exp.paidBy && paidMap[exp.paidBy] !== undefined) {
-        paidMap[exp.paidBy] += expAmount
-      }
-
-      if (exp.splitType === 'custom' && exp.customAmounts) {
-        Object.entries(exp.customAmounts).forEach(([person, val]) => {
-          if (shareMap[person] !== undefined) {
-            shareMap[person] += Number(val || 0)
-          }
-        })
-      } else if (exp.splitType === 'selected' && exp.selectedMembers && exp.selectedMembers.length > 0) {
-        const share = expAmount / exp.selectedMembers.length
-        exp.selectedMembers.forEach((person) => {
-          if (shareMap[person] !== undefined) {
-            shareMap[person] += share
-          }
-        })
-      } else {
-        // Equal split among all current members or members associated
-        const participants = exp.selectedMembers?.length ? exp.selectedMembers : members
-        const count = participants.length > 0 ? participants.length : members.length
-        const share = count > 0 ? expAmount / count : 0
-        participants.forEach((person) => {
-          if (shareMap[person] !== undefined) {
-            shareMap[person] += share
-          }
-        })
-      }
-    })
-
     return members.map((member) => {
-      const paid = paidMap[member] || 0
-      const share = shareMap[member] || 0
-      const net = paid - share
+      const paid = expenses
+        .filter((e) => e.paidBy === member)
+        .reduce((sum, e) => sum + Number(e.amount || 0), 0)
 
+      const net = paid - equalShare // Positive = is owed, Negative = owes
       return {
         name: member,
         paid,
-        share,
         net,
         status: net > 0.01 ? 'owed' : net < -0.01 ? 'owes' : 'settled',
         diff: Math.abs(net),
       }
     })
-  }, [members, expenses])
+  }, [members, expenses, equalShare])
 
-  // --- Smart Settlement Algorithm ("Who Pays Whom") ---
+  // Smart Settlement Plan ("Who Pays Whom")
   const settlements = useMemo(() => {
+    if (members.length === 0 || expenses.length === 0) return []
+
     const debtors = []
     const creditors = []
 
@@ -184,7 +118,7 @@ export default function App() {
       }
     })
 
-    // Sort descending for greedy minimum-transaction settlement
+    // Sort descending for minimum-transfer greedy settlement
     debtors.sort((a, b) => b.amount - a.amount)
     creditors.sort((a, b) => b.amount - a.amount)
 
@@ -192,7 +126,6 @@ export default function App() {
     let d = 0
     let c = 0
 
-    // Clone to prevent mutating state
     const dList = debtors.map((item) => ({ ...item }))
     const cList = creditors.map((item) => ({ ...item }))
 
@@ -217,12 +150,7 @@ export default function App() {
     }
 
     return transfers
-  }, [memberBalances])
-
-  // Custom Split helper totals
-  const totalCustomAllocated = useMemo(() => {
-    return Object.values(customAmounts).reduce((sum, val) => sum + Number(val || 0), 0)
-  }, [customAmounts])
+  }, [memberBalances, members.length, expenses.length])
 
   // --- Handlers ---
   const handleAddMember = (e) => {
@@ -235,63 +163,41 @@ export default function App() {
       return
     }
     if (members.length >= 6) {
-      setErrorMsg('Maximum 6 members allowed in group setup.')
+      setErrorMsg('Maximum 6 members allowed.')
       return
     }
     if (members.some((m) => m.toLowerCase() === trimmed.toLowerCase())) {
-      setErrorMsg(`${trimmed} is already in the group.`)
+      setErrorMsg(`"${trimmed}" is already in the group.`)
       return
     }
 
-    const updated = [...members, trimmed]
-    setMembers(updated)
-    setSelectedMembers(updated)
+    setMembers([...members, trimmed])
     setNewMemberName('')
   }
 
   const handleRemoveMember = (nameToRemove) => {
-    if (members.length <= 2) {
-      setErrorMsg('At least 2 members are required to split expenses.')
-      return
-    }
-    const hasExpenses = expenses.some(
-      (e) => e.paidBy === nameToRemove || (e.selectedMembers && e.selectedMembers.includes(nameToRemove))
-    )
+    const hasExpenses = expenses.some((e) => e.paidBy === nameToRemove)
     if (hasExpenses) {
-      if (!window.confirm(`${nameToRemove} is involved in recorded expenses. Removing them may affect calculations. Proceed?`)) {
+      if (!window.confirm(`Removing ${nameToRemove} will also remove their recorded expenses. Proceed?`)) {
         return
       }
+      setExpenses(expenses.filter((e) => e.paidBy !== nameToRemove))
     }
     setMembers(members.filter((m) => m !== nameToRemove))
     setErrorMsg('')
-  }
-
-  const toggleSelectMember = (name) => {
-    if (selectedMembers.includes(name)) {
-      if (selectedMembers.length <= 1) {
-        setErrorMsg('At least 1 person must share this expense.')
-        return
-      }
-      setSelectedMembers(selectedMembers.filter((m) => m !== name))
-    } else {
-      setSelectedMembers([...selectedMembers, name])
-    }
-    setErrorMsg('')
-  }
-
-  const handleCustomAmountChange = (person, val) => {
-    setCustomAmounts((prev) => ({
-      ...prev,
-      [person]: val === '' ? '' : Math.max(0, parseFloat(val) || 0),
-    }))
   }
 
   const handleAddExpense = (e) => {
     e.preventDefault()
     setErrorMsg('')
 
+    if (members.length < 2) {
+      setErrorMsg('Please add at least 2 members in Group Setup first.')
+      return
+    }
+
     if (!description.trim()) {
-      setErrorMsg('Please provide an expense description.')
+      setErrorMsg('Please enter an expense description.')
       return
     }
 
@@ -306,40 +212,17 @@ export default function App() {
       return
     }
 
-    if (splitType === 'selected') {
-      if (selectedMembers.length === 0) {
-        setErrorMsg('Please select at least 1 person who shares this expense.')
-        return
-      }
-    }
-
-    if (splitType === 'custom') {
-      const diff = Math.abs(numAmount - totalCustomAllocated)
-      if (diff > 0.05) {
-        setErrorMsg(
-          `Custom amounts (₹${totalCustomAllocated}) must equal the total expense amount (₹${numAmount}). Difference: ₹${(numAmount - totalCustomAllocated).toFixed(2)}`
-        )
-        return
-      }
-    }
-
     const newExpense = {
       id: Date.now().toString(),
       description: description.trim(),
       amount: numAmount,
       paidBy,
-      splitType,
-      selectedMembers: splitType === 'equal' ? members : [...selectedMembers],
-      customAmounts: splitType === 'custom' ? { ...customAmounts } : null,
       createdAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     }
 
     setExpenses([newExpense, ...expenses])
     setDescription('')
     setAmount('')
-    setCustomAmounts({})
-    setSplitType('equal')
-    setSelectedMembers(members)
     setErrorMsg('')
   }
 
@@ -347,30 +230,21 @@ export default function App() {
     setExpenses(expenses.filter((e) => e.id !== id))
   }
 
-  const handleLoadDemo = () => {
-    setMembers(SAMPLE_MEMBERS)
-    setExpenses(SAMPLE_EXPENSES)
-    setSelectedMembers(SAMPLE_MEMBERS)
-    setCustomAmounts({})
-    setSplitType('equal')
-    setErrorMsg('')
-  }
-
   const handleResetAll = () => {
-    if (window.confirm('Reset everything to an empty group?')) {
-      setMembers(['Aman', 'Riya'])
+    if (window.confirm('Clear all members and expenses to start completely fresh?')) {
+      setMembers([])
       setExpenses([])
-      setSelectedMembers(['Aman', 'Riya'])
-      setCustomAmounts({})
+      localStorage.removeItem('spliteasy_members')
+      localStorage.removeItem('spliteasy_expenses')
       setErrorMsg('')
     }
   }
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 font-sans antialiased pb-12">
-      {/* Top Header Navbar */}
+      {/* Top Navbar */}
       <header className="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-xs">
-        <div className="max-w-6xl mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+        <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
           <div className="flex items-center space-x-3">
             <div className="w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center shadow-md shadow-indigo-200">
               <Wallet className="w-5 h-5" />
@@ -379,39 +253,33 @@ export default function App() {
               <div className="flex items-center space-x-2">
                 <h1 className="text-xl font-bold tracking-tight text-slate-900">SplitEasy</h1>
                 <span className="text-xs px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 font-medium border border-indigo-100">
-                  Week 1 + Stretch Goal
+                  Week 1
                 </span>
               </div>
-              <p className="text-xs text-slate-500">Shared expense tracker with smart settlements</p>
+              <p className="text-xs text-slate-500">The Expense Page • Frontend</p>
             </div>
           </div>
 
-          <div className="flex items-center space-x-2">
-            <button
-              onClick={handleLoadDemo}
-              title="Loads Aman (900), Riya (300), Karan (0) test example"
-              className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-indigo-50 text-indigo-700 hover:bg-indigo-100 transition-colors border border-indigo-200"
-            >
-              <Sparkles className="w-3.5 h-3.5" />
-              <span>Load Test Example</span>
-            </button>
-            <button
-              onClick={handleResetAll}
-              title="Reset all data"
-              className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
-            >
-              <RotateCcw className="w-4 h-4" />
-            </button>
-          </div>
+          <button
+            onClick={handleResetAll}
+            title="Reset and clear all data"
+            className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 hover:text-slate-900 transition-colors border border-slate-200"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+            <span>Clear All</span>
+          </button>
         </div>
       </header>
 
-      {/* Main Container */}
+      {/* Main Content */}
       <main className="max-w-6xl mx-auto px-4 py-6">
         {/* Error notification banner */}
         {errorMsg && (
-          <div className="mb-6 p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-sm flex items-center justify-between animate-fadeIn">
-            <span>{errorMsg}</span>
+          <div className="mb-6 p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-sm flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
+              <span>{errorMsg}</span>
+            </div>
             <button
               onClick={() => setErrorMsg('')}
               className="text-rose-500 hover:text-rose-800 font-bold ml-2 text-xs"
@@ -438,7 +306,7 @@ export default function App() {
               <Users className="w-6 h-6" />
             </div>
             <div>
-              <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">Group Size</p>
+              <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">Group Members</p>
               <p className="text-2xl font-extrabold text-slate-900">
                 {members.length} <span className="text-xs font-normal text-slate-400">/ 6 people</span>
               </p>
@@ -447,15 +315,13 @@ export default function App() {
 
           <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex items-center space-x-4">
             <div className="w-12 h-12 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center">
-              <HandCoins className="w-6 h-6" />
+              <Receipt className="w-6 h-6" />
             </div>
             <div>
-              <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">Settlements Needed</p>
+              <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">Equal Share</p>
               <p className="text-2xl font-extrabold text-slate-900">
-                {settlements.length}{' '}
-                <span className="text-xs font-normal text-slate-400">
-                  {settlements.length === 1 ? 'transfer' : 'transfers'}
-                </span>
+                ₹{equalShare.toFixed(2)}{' '}
+                <span className="text-xs font-normal text-slate-400">/ person</span>
               </p>
             </div>
           </div>
@@ -463,7 +329,7 @@ export default function App() {
 
         {/* 2-Column Responsive Layout */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          {/* Left Column: Group Setup & Expense Form (lg:col-span-5) */}
+          {/* Left Column: Group Setup & Expense Form */}
           <div className="lg:col-span-5 space-y-6">
             {/* 1. Group Setup Box */}
             <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
@@ -504,11 +370,11 @@ export default function App() {
               <form onSubmit={handleAddMember} className="flex gap-2 mb-4">
                 <input
                   type="text"
-                  placeholder="e.g. Aman, Riya, Rahul"
+                  placeholder="Enter name (e.g. Aman, Riya)"
                   value={newMemberName}
                   onChange={(e) => setNewMemberName(e.target.value)}
                   disabled={members.length >= 6}
-                  className="flex-1 text-sm px-3 py-2 rounded-xl border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:border-transparent disabled:bg-slate-100 disabled:text-slate-400"
+                  className="flex-1 text-sm px-3.5 py-2 rounded-xl border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:border-transparent disabled:bg-slate-100 disabled:text-slate-400"
                 />
                 <button
                   type="submit"
@@ -520,232 +386,113 @@ export default function App() {
                 </button>
               </form>
 
-              {/* Current Members Badges */}
+              {/* Current Members List */}
               <div className="space-y-1.5">
-                <p className="text-xs font-medium text-slate-400">Current Members (Min 2, Max 6):</p>
-                <div className="flex flex-wrap gap-2">
-                  {members.map((name) => (
-                    <span
-                      key={name}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 text-slate-700 border border-slate-200/80 group"
-                    >
-                      <span className="w-2 h-2 rounded-full bg-indigo-500"></span>
-                      {name}
-                      {members.length > 2 && (
+                <p className="text-xs font-medium text-slate-400">Group Members (2 to 6 people):</p>
+                {members.length === 0 ? (
+                  <p className="text-xs text-slate-400 italic py-2">
+                    No members added yet. Type a name above to start.
+                  </p>
+                ) : (
+                  <div className="flex flex-wrap gap-2 pt-1">
+                    {members.map((name) => (
+                      <span
+                        key={name}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 text-slate-700 border border-slate-200"
+                      >
+                        <span className="w-2 h-2 rounded-full bg-indigo-500"></span>
+                        {name}
                         <button
                           type="button"
                           onClick={() => handleRemoveMember(name)}
                           title={`Remove ${name}`}
-                          className="text-slate-400 hover:text-rose-600 transition-colors ml-0.5"
+                          className="text-slate-400 hover:text-rose-600 transition-colors ml-1 font-bold text-sm"
                         >
                           ×
                         </button>
-                      )}
-                    </span>
-                  ))}
-                </div>
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
 
-            {/* 2. Expense Form with Flexible Splitting */}
+            {/* 2. Expense Form (Pure Week 1: Equal Split) */}
             <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center space-x-2">
-                  <PlusCircle className="w-5 h-5 text-indigo-600" />
-                  <h2 className="font-semibold text-slate-900">Add an Expense</h2>
-                </div>
-                <span className="text-[11px] text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-md font-medium">
-                  Equal & Custom Splits
-                </span>
+              <div className="flex items-center space-x-2 mb-4">
+                <PlusCircle className="w-5 h-5 text-indigo-600" />
+                <h2 className="font-semibold text-slate-900">Add an Expense</h2>
               </div>
 
-              <form onSubmit={handleAddExpense} className="space-y-4">
-                <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1">
-                    Expense Description
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="e.g. Dinner, Rent, Light Bill, Snacks"
-                    value={description}
-                    onChange={(e) => setDescription(e.target.value)}
-                    className="w-full text-sm px-3.5 py-2 rounded-xl border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                  />
+              {members.length < 2 ? (
+                <div className="p-4 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-xs flex items-center space-x-2">
+                  <AlertCircle className="w-4 h-4 shrink-0 text-amber-600" />
+                  <span>Please add at least 2 members in the Group Setup above to start recording expenses.</span>
                 </div>
-
-                <div className="grid grid-cols-2 gap-3">
+              ) : (
+                <form onSubmit={handleAddExpense} className="space-y-4">
                   <div>
                     <label className="block text-xs font-medium text-slate-600 mb-1">
-                      Amount (₹)
+                      Expense Description
                     </label>
                     <input
-                      type="number"
-                      min="1"
-                      step="any"
-                      placeholder="900"
-                      value={amount}
-                      onChange={(e) => setAmount(e.target.value)}
-                      className="w-full text-sm px-3.5 py-2 rounded-xl border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:border-transparent font-semibold"
+                      type="text"
+                      placeholder="e.g. Dinner, Flat rent, Groceries"
+                      value={description}
+                      onChange={(e) => setDescription(e.target.value)}
+                      className="w-full text-sm px-3.5 py-2 rounded-xl border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                     />
                   </div>
 
-                  <div>
-                    <label className="block text-xs font-medium text-slate-600 mb-1">
-                      Paid By
-                    </label>
-                    <select
-                      value={paidBy}
-                      onChange={(e) => setPaidBy(e.target.value)}
-                      className="w-full text-sm px-3 py-2 rounded-xl border border-slate-200 bg-white focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                    >
-                      {members.map((name) => (
-                        <option key={name} value={name}>
-                          {name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-
-                {/* Split Method Tabs */}
-                <div className="pt-2 border-t border-slate-100">
-                  <label className="block text-xs font-medium text-slate-600 mb-2">
-                    How should this be split?
-                  </label>
-                  <div className="grid grid-cols-3 gap-1 bg-slate-100 p-1 rounded-xl text-xs font-medium">
-                    <button
-                      type="button"
-                      onClick={() => setSplitType('equal')}
-                      className={`py-1.5 px-2 rounded-lg transition-all ${
-                        splitType === 'equal'
-                          ? 'bg-white text-indigo-700 shadow-xs font-semibold'
-                          : 'text-slate-600 hover:text-slate-900'
-                      }`}
-                    >
-                      👥 Everyone
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setSplitType('selected')}
-                      className={`py-1.5 px-2 rounded-lg transition-all ${
-                        splitType === 'selected'
-                          ? 'bg-white text-indigo-700 shadow-xs font-semibold'
-                          : 'text-slate-600 hover:text-slate-900'
-                      }`}
-                    >
-                      🎯 Select Friends
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setSplitType('custom')}
-                      className={`py-1.5 px-2 rounded-lg transition-all ${
-                        splitType === 'custom'
-                          ? 'bg-white text-indigo-700 shadow-xs font-semibold'
-                          : 'text-slate-600 hover:text-slate-900'
-                      }`}
-                    >
-                      ⚖️ Unequal (₹)
-                    </button>
-                  </div>
-                </div>
-
-                {/* Split Option 1: Equal among everyone */}
-                {splitType === 'equal' && (
-                  <div className="p-3 rounded-xl bg-slate-50 border border-slate-200/80 text-xs text-slate-600">
-                    Split equally among all <strong>{members.length} members</strong>
-                    {amount && parseFloat(amount) > 0 && (
-                      <span className="text-indigo-600 font-semibold ml-1">
-                        (₹{(parseFloat(amount) / members.length).toFixed(2)} each)
-                      </span>
-                    )}
-                  </div>
-                )}
-
-                {/* Split Option 2: Split among selected friends */}
-                {splitType === 'selected' && (
-                  <div className="space-y-2 p-3 rounded-xl bg-slate-50 border border-slate-200/80">
-                    <div className="flex items-center justify-between">
-                      <p className="text-xs font-medium text-slate-700">Choose who shares this expense:</p>
-                      {amount && parseFloat(amount) > 0 && selectedMembers.length > 0 && (
-                        <span className="text-xs text-indigo-600 font-semibold">
-                          ₹{(parseFloat(amount) / selectedMembers.length).toFixed(2)} / person
-                        </span>
-                      )}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600 mb-1">
+                        Amount (₹)
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        step="any"
+                        placeholder="e.g. 1200"
+                        value={amount}
+                        onChange={(e) => setAmount(e.target.value)}
+                        className="w-full text-sm px-3.5 py-2 rounded-xl border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:border-transparent font-semibold"
+                      />
                     </div>
-                    <div className="flex flex-wrap gap-1.5">
-                      {members.map((name) => {
-                        const isSelected = selectedMembers.includes(name)
-                        return (
-                          <button
-                            key={name}
-                            type="button"
-                            onClick={() => toggleSelectMember(name)}
-                            className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors border flex items-center space-x-1 ${
-                              isSelected
-                                ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
-                                : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
-                            }`}
-                          >
-                            {isSelected && <Check className="w-3 h-3" />}
-                            <span>{name}</span>
-                          </button>
-                        )
-                      })}
-                    </div>
-                  </div>
-                )}
 
-                {/* Split Option 3: Custom Unequal exact amounts */}
-                {splitType === 'custom' && (
-                  <div className="space-y-2 p-3 rounded-xl bg-slate-50 border border-slate-200/80">
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="font-medium text-slate-700">Specify exact amount per person:</span>
-                      <span
-                        className={`font-semibold ${
-                          amount && Math.abs(parseFloat(amount) - totalCustomAllocated) < 0.05
-                            ? 'text-emerald-600'
-                            : 'text-amber-600'
-                        }`}
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600 mb-1">
+                        Paid By
+                      </label>
+                      <select
+                        value={paidBy}
+                        onChange={(e) => setPaidBy(e.target.value)}
+                        className="w-full text-sm px-3 py-2 rounded-xl border border-slate-200 bg-white focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                       >
-                        Total: ₹{totalCustomAllocated} / ₹{amount || 0}
-                      </span>
-                    </div>
-
-                    <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
-                      {members.map((name) => (
-                        <div key={name} className="flex items-center justify-between gap-2 text-xs">
-                          <span className="text-slate-700 font-medium">{name}</span>
-                          <div className="flex items-center space-x-1">
-                            <span className="text-slate-400">₹</span>
-                            <input
-                              type="number"
-                              min="0"
-                              placeholder="0"
-                              value={customAmounts[name] ?? ''}
-                              onChange={(e) => handleCustomAmountChange(name, e.target.value)}
-                              className="w-24 px-2 py-1 bg-white rounded-lg border border-slate-200 text-right text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-hidden"
-                            />
-                          </div>
-                        </div>
-                      ))}
+                        {members.map((name) => (
+                          <option key={name} value={name}>
+                            {name}
+                          </option>
+                        ))}
+                      </select>
                     </div>
                   </div>
-                )}
 
-                <button
-                  type="submit"
-                  className="w-full mt-2 py-2.5 px-4 rounded-xl font-semibold text-sm bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm shadow-indigo-200 transition-colors flex items-center justify-center space-x-2"
-                >
-                  <PlusCircle className="w-4 h-4" />
-                  <span>Add Expense</span>
-                </button>
-              </form>
+                  <button
+                    type="submit"
+                    className="w-full mt-2 py-2.5 px-4 rounded-xl font-semibold text-sm bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm shadow-indigo-200 transition-colors flex items-center justify-center space-x-2"
+                  >
+                    <PlusCircle className="w-4 h-4" />
+                    <span>Add Expense</span>
+                  </button>
+                </form>
+              )}
             </div>
           </div>
 
-          {/* Right Column: Settlement Plan, Balance View & Expense List (lg:col-span-7) */}
+          {/* Right Column: Settlement Plan, Balance View & Expense List */}
           <div className="lg:col-span-7 space-y-6">
-            {/* 3. "WHO PAYS WHOM" (Smart Settlement Plan) */}
+            {/* 3. "Who Pays Whom" (Settlement Plan) */}
             <div className="bg-white p-5 rounded-2xl border border-indigo-100 shadow-sm shadow-indigo-50/50">
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center space-x-2">
@@ -753,40 +500,41 @@ export default function App() {
                     <HandCoins className="w-5 h-5" />
                   </div>
                   <div>
-                    <h2 className="font-semibold text-slate-900">Who Pays Whom (Settlement Plan)</h2>
-                    <p className="text-xs text-slate-500">Minimum transfers needed to settle all debts</p>
+                    <h2 className="font-semibold text-slate-900">Who Pays Whom</h2>
+                    <p className="text-xs text-slate-500">Direct transfers to settle all debts</p>
                   </div>
                 </div>
-                <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-100">
-                  Simplified Debts
-                </span>
               </div>
 
-              {settlements.length === 0 ? (
+              {members.length < 2 || expenses.length === 0 ? (
+                <div className="text-center py-6 px-4 bg-slate-50 border border-slate-200 rounded-xl text-slate-500 text-xs">
+                  Add members and expenses to see who needs to pay whom.
+                </div>
+              ) : settlements.length === 0 ? (
                 <div className="text-center py-6 px-4 bg-emerald-50/50 border border-emerald-100 rounded-xl text-emerald-800 text-xs flex items-center justify-center space-x-2">
                   <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                  <span className="font-medium">All settled up! Nobody owes any money.</span>
+                  <span className="font-medium">All settled up! No money is owed.</span>
                 </div>
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                   {settlements.map((s, idx) => (
                     <div
                       key={idx}
-                      className="p-3 rounded-xl bg-slate-50 border border-slate-200/80 flex items-center justify-between gap-3 hover:bg-indigo-50/40 transition-colors"
+                      className="p-3 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between gap-3 hover:bg-indigo-50/40 transition-colors"
                     >
                       <div className="flex items-center space-x-2 text-xs">
-                        <span className="font-bold text-slate-900 bg-white px-2 py-1 rounded-md border border-slate-200 shadow-2xs">
+                        <span className="font-bold text-slate-900 bg-white px-2 py-1 rounded-md border border-slate-200">
                           {s.from}
                         </span>
                         <div className="flex items-center text-indigo-500">
                           <span className="text-[10px] uppercase font-semibold mr-1">pays</span>
                           <ArrowRight className="w-3.5 h-3.5" />
                         </div>
-                        <span className="font-bold text-slate-900 bg-white px-2 py-1 rounded-md border border-slate-200 shadow-2xs">
+                        <span className="font-bold text-slate-900 bg-white px-2 py-1 rounded-md border border-slate-200">
                           {s.to}
                         </span>
                       </div>
-                      <span className="text-sm font-extrabold text-indigo-700 bg-white px-2.5 py-1 rounded-lg border border-indigo-100 shadow-2xs">
+                      <span className="text-sm font-extrabold text-indigo-700 bg-white px-2.5 py-1 rounded-lg border border-indigo-100">
                         ₹{s.amount.toFixed(2)}
                       </span>
                     </div>
@@ -795,77 +543,75 @@ export default function App() {
               )}
             </div>
 
-            {/* 4. Individual Balances & Total Consumed */}
+            {/* 4. Balance Breakdown View */}
             <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center space-x-2">
                   <Wallet className="w-5 h-5 text-indigo-600" />
-                  <h2 className="font-semibold text-slate-900">Member Balances</h2>
+                  <h2 className="font-semibold text-slate-900">Balance Breakdown</h2>
                 </div>
-                <span className="text-xs text-slate-500">Net = Paid − Share</span>
+                {members.length > 0 && (
+                  <span className="text-xs text-slate-500">
+                    Equal share: <strong className="text-slate-800">₹{equalShare.toFixed(2)}</strong>
+                  </span>
+                )}
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                {memberBalances.map((b) => (
-                  <div
-                    key={b.name}
-                    className={`p-3.5 rounded-xl border transition-all ${
-                      b.status === 'owed'
-                        ? 'bg-emerald-50/60 border-emerald-200 text-emerald-950'
-                        : b.status === 'owes'
-                        ? 'bg-rose-50/60 border-rose-200 text-rose-950'
-                        : 'bg-slate-50 border-slate-200 text-slate-700'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between mb-1.5">
-                      <span className="font-bold text-sm text-slate-900">{b.name}</span>
-                      {b.status === 'owed' && (
-                        <span className="inline-flex items-center text-[11px] font-semibold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">
-                          <ArrowUpRight className="w-3 h-3 mr-0.5" /> is owed
-                        </span>
-                      )}
-                      {b.status === 'owes' && (
-                        <span className="inline-flex items-center text-[11px] font-semibold text-rose-700 bg-rose-100 px-2 py-0.5 rounded-full">
-                          <ArrowDownRight className="w-3 h-3 mr-0.5" /> owes
-                        </span>
-                      )}
-                      {b.status === 'settled' && (
-                        <span className="inline-flex items-center text-[11px] font-medium text-slate-600 bg-slate-200 px-2 py-0.5 rounded-full">
-                          <CheckCircle2 className="w-3 h-3 mr-0.5" /> settled
-                        </span>
-                      )}
-                    </div>
-
-                    <div className="text-xs text-slate-500 space-y-0.5 mb-2">
-                      <div className="flex justify-between">
-                        <span>Paid:</span>
-                        <span className="font-semibold text-slate-700">₹{b.paid.toLocaleString()}</span>
+              {members.length === 0 ? (
+                <div className="text-center py-6 px-4 bg-slate-50 border border-slate-200 rounded-xl text-slate-500 text-xs">
+                  No members yet. Add people in the Group Setup box.
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  {memberBalances.map((b) => (
+                    <div
+                      key={b.name}
+                      className={`p-3.5 rounded-xl border transition-all ${
+                        b.status === 'owed'
+                          ? 'bg-emerald-50/60 border-emerald-200 text-emerald-950'
+                          : b.status === 'owes'
+                          ? 'bg-rose-50/60 border-rose-200 text-rose-950'
+                          : 'bg-slate-50 border-slate-200 text-slate-700'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="font-bold text-sm text-slate-900">{b.name}</span>
+                        {b.status === 'owed' && (
+                          <span className="inline-flex items-center text-[11px] font-semibold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">
+                            <ArrowUpRight className="w-3 h-3 mr-0.5" /> is owed
+                          </span>
+                        )}
+                        {b.status === 'owes' && (
+                          <span className="inline-flex items-center text-[11px] font-semibold text-rose-700 bg-rose-100 px-2 py-0.5 rounded-full">
+                            <ArrowDownRight className="w-3 h-3 mr-0.5" /> owes
+                          </span>
+                        )}
+                        {b.status === 'settled' && (
+                          <span className="inline-flex items-center text-[11px] font-medium text-slate-600 bg-slate-200 px-2 py-0.5 rounded-full">
+                            <CheckCircle2 className="w-3 h-3 mr-0.5" /> settled
+                          </span>
+                        )}
                       </div>
-                      <div className="flex justify-between">
-                        <span>Share:</span>
-                        <span className="font-semibold text-slate-700">₹{b.share.toFixed(2)}</span>
+
+                      <p className="text-xs text-slate-500 mb-1.5">
+                        Paid: <span className="font-semibold text-slate-700">₹{b.paid.toLocaleString()}</span>
+                      </p>
+
+                      <div className="text-sm font-extrabold">
+                        {b.status === 'owed' && (
+                          <span className="text-emerald-700">+₹{b.diff.toFixed(2)}</span>
+                        )}
+                        {b.status === 'owes' && (
+                          <span className="text-rose-700">-₹{b.diff.toFixed(2)}</span>
+                        )}
+                        {b.status === 'settled' && (
+                          <span className="text-slate-500">₹0.00</span>
+                        )}
                       </div>
                     </div>
-
-                    <div className="pt-2 border-t border-slate-200/60 flex items-center justify-between">
-                      <span className="text-[11px] text-slate-500 font-medium">Net Balance:</span>
-                      <span
-                        className={`text-sm font-extrabold ${
-                          b.status === 'owed'
-                            ? 'text-emerald-700'
-                            : b.status === 'owes'
-                            ? 'text-rose-700'
-                            : 'text-slate-500'
-                        }`}
-                      >
-                        {b.status === 'owed' && `+₹${b.diff.toFixed(2)}`}
-                        {b.status === 'owes' && `-₹${b.diff.toFixed(2)}`}
-                        {b.status === 'settled' && '₹0.00'}
-                      </span>
-                    </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* 5. Expense List */}
@@ -885,7 +631,7 @@ export default function App() {
                   <Receipt className="w-8 h-8 text-slate-300 mx-auto mb-2" />
                   <p className="text-sm font-medium text-slate-600">No expenses added yet</p>
                   <p className="text-xs text-slate-400 mt-0.5">
-                    Use the form on the left to record your first shared expense.
+                    Add your friends and record your first expense.
                   </p>
                 </div>
               ) : (
@@ -900,19 +646,7 @@ export default function App() {
                           {exp.paidBy.substring(0, 2)}
                         </div>
                         <div>
-                          <div className="flex items-center space-x-2">
-                            <p className="text-sm font-semibold text-slate-900">{exp.description}</p>
-                            {exp.splitType === 'selected' && (
-                              <span className="text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200 px-1.5 py-0.5 rounded-md">
-                                {exp.selectedMembers?.length} friends
-                              </span>
-                            )}
-                            {exp.splitType === 'custom' && (
-                              <span className="text-[10px] font-semibold bg-purple-50 text-purple-700 border border-purple-200 px-1.5 py-0.5 rounded-md">
-                                Custom split
-                              </span>
-                            )}
-                          </div>
+                          <p className="text-sm font-semibold text-slate-900">{exp.description}</p>
                           <p className="text-xs text-slate-500">
                             Paid by <span className="font-medium text-slate-700">{exp.paidBy}</span> •{' '}
                             <span>{exp.createdAt || 'Recent'}</span>
@@ -939,22 +673,6 @@ export default function App() {
             </div>
           </div>
         </div>
-
-        {/* Verification Check Banner */}
-        <section className="mt-8 p-4 rounded-2xl bg-indigo-50/60 border border-indigo-100 flex flex-col md:flex-row items-start md:items-center justify-between gap-3 text-xs text-indigo-900">
-          <div>
-            <strong>CodGen Week 1 Reference Check:</strong> Aman paid ₹900, Riya paid ₹300, Karan paid ₹0.
-            <div className="mt-0.5 text-indigo-700">
-              Total = ₹1,200 | Equal share = ₹400/person | Aman is owed ₹500, Riya owes ₹100, Karan owes ₹400.
-            </div>
-          </div>
-          <button
-            onClick={handleLoadDemo}
-            className="shrink-0 px-3 py-1.5 rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-700 transition-colors shadow-xs"
-          >
-            Verify with Test Data
-          </button>
-        </section>
       </main>
     </div>
   )
